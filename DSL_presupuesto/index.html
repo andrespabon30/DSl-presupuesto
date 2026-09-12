@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DSL Presupuesto</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+</head>
+<body class="bg-slate-100 text-slate-900">
+  <main id="app" class="mx-auto w-[min(1180px,calc(100%_-_32px))] py-7 max-[560px]:w-[min(1180px,calc(100%_-_20px))] max-[560px]:pt-5">
+    <section class="mb-5">
+      <h1 class="mb-1 text-3xl font-bold">DSL Presupuesto Domestico</h1>
+      <p class="text-slate-500">
+        Editor compatible con la version nueva de <strong>proye1.py</strong>: lexer, parser, analisis semantico y tabla de simbolos.
+      </p>
+    </section>
+
+    <div class="grid items-start gap-4 lg:grid-cols-[minmax(360px,0.95fr)_minmax(420px,1.25fr)]">
+      <section>
+        <article class="mb-4 rounded-lg border border-slate-300 bg-white p-5">
+          <h2 class="mb-3 text-xl font-bold">Programa DSL</h2>
+          <textarea
+            v-model="programa"
+            spellcheck="false"
+            aria-label="Programa DSL"
+            class="min-h-64 w-full resize-y rounded-lg border border-slate-300 bg-slate-50 p-3 font-mono text-sm leading-6 text-slate-950 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+          ></textarea>
+          <div class="mt-3 flex flex-wrap gap-2 max-[560px]:grid">
+            <button
+              @click="compilarPrograma"
+              :disabled="cargando"
+              class="min-h-10 rounded-md bg-blue-600 px-4 font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              {{ cargando ? "Compilando..." : "Compilar" }}
+            </button>
+            <button class="min-h-10 rounded-md bg-slate-200 px-4 font-bold text-slate-900 hover:bg-slate-300" @click="cargarEjemplo">
+              Cargar ejemplo
+            </button>
+            <button class="min-h-10 rounded-md bg-slate-200 px-4 font-bold text-slate-900 hover:bg-slate-300" @click="limpiar">
+              Limpiar resultado
+            </button>
+          </div>
+        </article>
+
+        <article class="mb-4 rounded-lg border border-slate-300 bg-white p-5">
+          <h2 class="mb-3 text-xl font-bold">Sintaxis soportada</h2>
+          <div class="grid gap-2 text-sm text-slate-500">
+            <code class="font-mono text-slate-950">INGRESO FIJO NOMINA = 2500000;</code>
+            <code class="font-mono text-slate-950">GASTO FIJO LUZ = 2500;</code>
+            <code class="font-mono text-slate-950">GASTO HORMIGA CAFE = 3000;</code>
+            <code class="font-mono text-slate-950">GASTO VARIABLE MERCADO = 250000;</code>
+            <code class="font-mono text-slate-950">CALCULAR PRESUPUESTO;</code>
+            <p class="mt-2 text-sm text-slate-500">La estructura obligatoria es <code class="font-mono text-slate-950">TIPO CLASIFICACION IDENTIFICADOR = VALOR;</code>. Las clasificaciones validas son <code class="font-mono text-slate-950">FIJO</code>, <code class="font-mono text-slate-950">HORMIGA</code> y <code class="font-mono text-slate-950">VARIABLE</code>.</p>
+            <p class="text-sm text-slate-500">El sintactico acepta numeros negativos, pero el semantico los rechaza porque el presupuesto no permite valores menores o iguales a cero.</p>
+          </div>
+        </article>
+      </section>
+
+      <section>
+        <article class="mb-4 rounded-lg border border-red-200 bg-red-50 p-5" v-if="error">
+          <h2 class="mb-3 text-xl font-bold">Error del servidor</h2>
+          <p class="text-red-700">{{ error }}</p>
+        </article>
+
+        <article class="mb-4 rounded-lg border border-slate-300 bg-white p-5" v-if="resultado">
+          <h2 class="mb-3 text-xl font-bold">Resumen</h2>
+          <div class="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            <div class="rounded-lg border border-slate-300 bg-slate-50 p-3">
+              <span class="mb-2 block text-xs font-bold uppercase text-slate-500">Estado</span>
+              <strong class="block text-lg break-words" :class="resultado.resumen.estado === 'OK' ? 'text-emerald-700' : 'text-red-700'">
+                {{ resultado.resumen.estado }}
+              </strong>
+            </div>
+            <div class="rounded-lg border border-slate-300 bg-slate-50 p-3">
+              <span class="mb-2 block text-xs font-bold uppercase text-slate-500">Ingreso mensual</span>
+              <strong class="block text-lg break-words">{{ moneda(resultado.resumen.ingreso_mensual) }}</strong>
+            </div>
+            <div class="rounded-lg border border-slate-300 bg-slate-50 p-3">
+              <span class="mb-2 block text-xs font-bold uppercase text-slate-500">Total gastos</span>
+              <strong class="block text-lg break-words">{{ moneda(resultado.resumen.total_gastos) }}</strong>
+            </div>
+            <div class="rounded-lg border border-slate-300 bg-slate-50 p-3">
+              <span class="mb-2 block text-xs font-bold uppercase text-slate-500">Saldo final</span>
+              <strong class="block text-lg break-words" :class="resultado.resumen.saldo_final < 0 ? 'text-red-700' : 'text-emerald-700'">
+                {{ moneda(resultado.resumen.saldo_final) }}
+              </strong>
+            </div>
+          </div>
+        </article>
+
+        <article class="mb-4 rounded-lg border border-slate-300 bg-white p-5" v-if="resultado">
+          <h2 class="mb-3 text-xl font-bold">Resultado del analisis</h2>
+          <div class="grid gap-3">
+            <div class="rounded-lg border border-slate-300 bg-slate-50 p-3" v-for="linea in resultado.analisis" :key="linea.numero">
+              <div class="mb-2 flex justify-between gap-3 max-[560px]:grid">
+                <span class="break-words font-mono text-sm text-slate-950">Linea {{ linea.numero }}: {{ linea.linea }}</span>
+                <span
+                  class="inline-flex min-h-6 items-center whitespace-nowrap rounded-full px-2 text-xs font-bold"
+                  :class="linea.estado === 'OK' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'"
+                >
+                  {{ linea.estado === "OK" ? "Linea valida" : "Linea con error" }}
+                </span>
+              </div>
+
+              <div class="mt-2">
+                <span
+                  class="mb-1 mr-1 inline-block rounded-full bg-blue-50 px-2 py-1 text-xs font-bold text-blue-800"
+                  v-for="(token, index) in linea.tokens"
+                  :key="index"
+                >
+                  {{ token.tipo }}: {{ token.valor }}
+                </span>
+              </div>
+
+              <div class="mt-3 grid gap-2 min-[941px]:grid-cols-3">
+                <div class="rounded-lg border p-3" :class="claseFase(linea.lexico.estado)">
+                  <span class="mb-1 block text-xs font-bold uppercase text-slate-500">Analisis lexico</span>
+                  <strong class="block text-sm">Lexico: {{ linea.lexico.estado }}</strong>
+                  <p class="mt-1 text-sm" v-if="linea.lexico.estado === 'Error'">{{ linea.lexico.mensaje }}</p>
+                </div>
+                <div class="rounded-lg border p-3" :class="claseFase(linea.parser.estado)">
+                  <span class="mb-1 block text-xs font-bold uppercase text-slate-500">Analisis sintactico</span>
+                  <strong class="block text-sm">Sintactico: {{ linea.parser.estado }}</strong>
+                  <p class="mt-1 text-sm" v-if="linea.parser.estado === 'Error'">{{ linea.parser.mensaje }}</p>
+                </div>
+                <div class="rounded-lg border p-3" :class="claseFase(linea.semantico.estado)">
+                  <span class="mb-1 block text-xs font-bold uppercase text-slate-500">Analisis semantico</span>
+                  <strong class="block text-sm">Semantico: {{ linea.semantico.estado }}</strong>
+                  <p class="mt-1 text-sm" v-if="linea.semantico.estado === 'Error'">{{ linea.semantico.mensaje }}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="mb-4 rounded-lg border border-slate-300 bg-white p-5" v-if="resultado">
+          <h2 class="mb-3 text-xl font-bold">Tabla de simbolos</h2>
+          <div class="mb-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            <div class="rounded-lg border border-slate-300 bg-slate-50 p-3" v-for="(total, categoria) in resultado.tabla_simbolos.TOTALES" :key="categoria">
+              <span class="mb-2 block text-xs font-bold uppercase text-slate-500">{{ categoria }}</span>
+              <strong class="block text-lg break-words">{{ moneda(total) }}</strong>
+            </div>
+          </div>
+
+          <h3 class="mb-2 text-base font-bold">Gastos registrados</h3>
+          <p class="m-0 text-slate-500" v-if="resultado.gastos.length === 0">No hay gastos registrados.</p>
+          <div class="overflow-x-auto" v-else>
+            <table class="w-full border-collapse text-sm">
+              <thead>
+                <tr>
+                  <th class="border-b border-slate-300 px-2 py-2 text-left text-xs uppercase text-slate-500">Nombre</th>
+                  <th class="border-b border-slate-300 px-2 py-2 text-left text-xs uppercase text-slate-500">Categoria</th>
+                  <th class="border-b border-slate-300 px-2 py-2 text-left text-xs uppercase text-slate-500">Valor</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(gasto, index) in resultado.gastos" :key="index">
+                  <td class="border-b border-slate-300 px-2 py-2 align-top">{{ gasto.nombre }}</td>
+                  <td class="border-b border-slate-300 px-2 py-2 align-top">{{ gasto.categoria }}</td>
+                  <td class="border-b border-slate-300 px-2 py-2 align-top">{{ moneda(gasto.valor) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const { createApp } = Vue;
+
+    const ejemplo = `INGRESO FIJO NOMINA = 2500000;
+GASTO FIJO LUZ = 2500;
+GASTO HORMIGA CAFE = 3000;
+GASTO VARIABLE MERCADO = 250000;
+CALCULAR PRESUPUESTO;`;
+
+    createApp({
+      data() {
+        return {
+          programa: ejemplo,
+          resultado: null,
+          error: "",
+          cargando: false
+        };
+      },
+      methods: {
+        moneda(valor) {
+          return new Intl.NumberFormat("es-CO", {
+            style: "currency",
+            currency: "COP",
+            maximumFractionDigits: 0
+          }).format(Number(valor) || 0);
+        },
+        cargarEjemplo() {
+          this.programa = ejemplo;
+          this.error = "";
+          this.resultado = null;
+        },
+        limpiar() {
+          this.resultado = null;
+          this.error = "";
+        },
+        claseFase(estado) {
+          if (estado === "Correcto") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+          if (estado === "Error") return "border-red-200 bg-red-50 text-red-700";
+          return "border-slate-300 bg-slate-100 text-slate-500";
+        },
+        async compilarPrograma() {
+          this.cargando = true;
+          this.error = "";
+
+          try {
+            const respuesta = await fetch("/compilar", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ programa: this.programa })
+            });
+
+            const data = await respuesta.json();
+
+            if (!respuesta.ok) {
+              throw new Error(data.error || "No se pudo compilar el programa.");
+            }
+
+            this.resultado = data;
+          } catch (error) {
+            this.resultado = null;
+            this.error = error.message || "Ejecuta primero el servidor con: python servidor.py";
+          } finally {
+            this.cargando = false;
+          }
+        }
+      }
+    }).mount("#app");
+  </script>
+</body>
+</html>
